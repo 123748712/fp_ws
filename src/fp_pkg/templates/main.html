@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="/static/vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
+    <link
+        href="https://fonts.googleapis.com/css?family=Nunito:200,200i,300,300i,400,400i,600,600i,700,700i,800,800i,900,900i"
+        rel="stylesheet">
+    <link href="/static/css/sb-admin-2.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
+    <title>AI 자율주행 지게차 통합 관제 웹 솔루션</title>
+</head>
+<body>
+    <!-- ros js -->
+    <script src="https://cdn.jsdelivr.net/npm/easeljs@1/lib/easeljs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/eventemitter2@6/lib/eventemitter2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
+    <script src="/static/js/ros2d.js"></script>
+    
+    <!-- 함수 모음 js -->
+    <script src="/static/js/common/ros.js"></script>
+    <script src="/static/js/common/main.js"></script>
+
+    <!-- jquery, bootstrap js -->
+    <script src="/static/vendor/jquery/jquery.min.js"></script>
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/vendor/jquery-easing/jquery.easing.min.js"></script>
+    <script src="/static/js/sb-admin-2.min.js"></script>
+    <!-- 조이스틱 js -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+    <!-- toast -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+    <div id="wrapper">
+        <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
+            <a class="sidebar-brand d-flex align-items-center justify-content-center" href="/main.do">
+                <div class="sidebar-brand-icon">
+                    <i class="fas fa-dolly-flatbed"></i>
+                </div>
+                <div class="sidebar-brand-text mx-3">자율주행 지게차</div>
+            </a>
+            <hr class="sidebar-divider my-0">
+
+            <li class="nav-item active">
+                <a class="nav-link" href="/main.do">
+                    <i class="fas fa-fw fa-tachometer-alt"></i>
+                    <span>올인원 화면</span></a>
+            </li>
+
+            <hr class="sidebar-divider">
+
+            <li class="nav-item">
+                <a class="nav-link" href="charts.html">
+                    <i class="fas fa-fw fa-chart-area"></i>
+                    <span>알림 화면</span></a>
+            </li>
+
+            <div class="text-center d-none d-md-inline">
+                <button class="rounded-circle border-0" id="sidebarToggle"></button>
+            </div>
+        </ul>
+
+        <div id="content-wrapper" class="d-flex flex-column">
+            <div id="content">
+                <nav class="navbar navbar-expand navbar-light bg-white topbar mb-4 static-top shadow">
+                    <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3">
+                        <i class="fa fa-bars"></i>
+                    </button>
+
+                    <div class="d-none d-sm-flex align-items-center ml-3">
+                        <div class="mr-3">
+                            <span class="badge badge-primary p-2" id="driveMode">수동 주행</span>
+                        </div>
+
+                        <div class="small font-weight-bold text-primary text-uppercase mb-0 mr-3">
+                            <i class="fas fa-tachometer-alt mr-1"></i>
+                            Linear: <span id="linearSpeed" class="text-dark">0.00</span> m/s | 
+                            Angular: <span id="angularSpeed" class="text-dark">0.00</span> rad/s
+                        </div>
+                    </div>
+
+                    <ul class="navbar-nav ml-auto">
+
+                        <li class="nav-item mx-2 d-flex align-items-center">
+                            <div class="small font-weight-bold">
+                                <i class="fas fa-bolt text-warning mr-1"></i>
+                                <span id="batteryVoltage" class="text-gray-800"></span> V
+                            </div>
+                        </li>
+
+                        <li class="nav-item mx-3 d-flex align-items-center">
+                            <div class="d-flex align-items-center">
+                                <div class="mr-2">
+                                    <div class="small font-weight-bold text-gray-800"><span id="batteryPercentage"></span>%</div>
+                                </div>
+                                <div class="progress progress-sm mr-2" style="width: 50px; height: 10px;">
+                                    <div id="batteryLevelBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <i id="batteryIcon" class="fas fa-battery-half text-gray-400"></i>
+                            </div>
+                        </li>
+
+                        <div class="topbar-divider d-none d-sm-block"></div>
+
+                        <li class="nav-item dropdown no-arrow mx-1">
+                            <a class="nav-link dropdown-toggle" href="#" id="alertsDropdown" role="button"
+                            data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                <i class="fas fa-bell fa-fw"></i>
+                                <span class="badge badge-danger badge-counter" id="alertCount">0</span>
+                            </a>
+                            <div class="dropdown-list dropdown-menu dropdown-menu-right shadow animated--grow-in"
+                                aria-labelledby="alertsDropdown">
+                                <h6 class="dropdown-header">알림창</h6>
+                                <div id="alertItems">
+                                    <a class="dropdown-item d-flex align-items-center" href="#">
+                                        <div id="alerts" style="height:300px; width: 100%; overflow-y: auto;"></div>
+                                    </a>
+                                </div>
+                                <a class="dropdown-item text-center small text-gray-500" href="#">모든 알림 보기</a>
+                            </div>
+                        </li>
+                        <li class="nav-item dropdown no-arrow">
+                            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button"
+                                data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                <span class="mr-2 d-none d-lg-inline text-gray-600 small">TurtleBot3</span>
+                                
+                                <i class="bi bi-robot img-profile rounded-circle d-flex align-items-center justify-content-center" 
+                                style="font-size: 1.2rem; width: 32px; height: 32px; background: #e0e0e0;"></i>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+
+                <div class="container-fluid">
+                    <div class="row">
+                        <div class="col-xl-8 col-lg-8">
+                            <div class="card shadow mb-4">
+                                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                                    <h6 class="m-0 font-weight-bold text-primary">
+                                        <i class="fas fa-map"></i>
+                                        지도
+                                    </h6>
+                                    <div class="d-flex align-items-center">
+                                        <select id="mapSelect" class="form-control form-control-sm" style="width: 150px;">
+                                        </select>
+                                        <button class="btn btn-sm btn-primary ml-2" id="addMapBtn">
+                                            <i class="fas fa-plus"></i> 추가
+                                        </button>
+                                        <button class="btn btn-sm btn-primary ml-2" id="saveMapBtn" style="display: none;">
+                                            <i class="fas fa-plus"></i> 저장
+                                        </button>
+                                        <button class="btn btn-sm btn-danger ml-1" id="deleteMapBtn">
+                                            <i class="fas fa-trash"></i> 삭제
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body" style="height:1000px;">
+                                    <div id="map"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-xl-4 col-lg-4">
+                            <div class="card shadow mb-4">
+                                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                                    <h6 class="m-0 font-weight-bold text-primary">
+                                        <i class="fas fa-robot mr-2"></i>
+                                        로봇 제어 시스템
+                                    </h6>
+                                </div>
+                                <div class="card-body" style="height:1000px; overflow-y: auto;">
+                                    <ul class="nav nav-tabs mb-3" id="robotControlTab" role="tablist">
+                                        <li class="nav-item" role="presentation">
+                                            <a class="nav-link active" id="nav-drive-tab" data-toggle="tab" href="#nav-drive" role="tab">위치/주행</a>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <a class="nav-link" id="nav-manual-tab" data-toggle="tab" href="#nav-manual" role="tab">수동모드</a>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <a class="nav-link" id="nav-auto-tab" data-toggle="tab" href="#nav-auto" role="tab">자동모드</a>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <a class="nav-link" id="nav-etc-tab" data-toggle="tab" href="#nav-etc" role="tab">기타</a>
+                                        </li>
+                                    </ul>
+
+                                    <div class="tab-content" id="nav-tabContent">
+                                        <div class="tab-pane fade show active" id="nav-drive" role="tabpanel">
+                                            <div class="p-2">
+                                                <div class="alert alert-info small">
+                                                    <i class="fas fa-info-circle mr-1"></i> 지도를 드래그하여 로봇의 위치와 목적지를 설정하세요.
+                                                </div>
+                                                <button id="poseBtn" class="btn btn-outline-primary btn-block mb-3 py-3">
+                                                    <i class="fas fa-crosshairs mr-2"></i><strong>위치 설정</strong>
+                                                </button>
+                                                <button id="goalBtn" class="btn btn-outline-danger btn-block mb-3 py-3">
+                                                    <i class="fas fa-map-marker-alt mr-2"></i><strong>주행 설정</strong>
+                                                </button>
+                                                <button id="nodeBtn" class="btn btn-outline-warning btn-block mb-3 py-3">
+                                                    <i class="fas fa-route mr-2"></i><strong>노드 생성</strong>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="tab-pane fade" id="nav-manual" role="tabpanel">
+                                            <div class="p-2 text-center">
+                                                <h6 class="font-weight-bold mb-3">Joystick Control</h6>
+                                                <div id="joystick-zone" style="height: 250px; background: radial-gradient(circle, #f8f9fc 0%, #eaecf4 100%); border-radius: 50%; width: 250px; margin: 0 auto; border: 2px dashed #d1d3e2; display: flex; align-items: center; justify-content: center;">
+                                                    <div id="static-joystick" style="position: relative; width: 200px; height: 200px;"></div>
+                                                </div>
+                                                <div class="mt-4">
+                                                    <div class="row no-gutters text-center">
+                                                        <div class="col"><p class="small mb-0">Linear</p><strong id="linear_val">0.0</strong></div>
+                                                        <div class="col"><p class="small mb-0">Angular</p><strong id="angular_val">0.0</strong></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="tab-pane fade" id="nav-auto" role="tabpanel">
+                                            <div class="p-2">
+                                                <label class="small font-weight-bold text-dark">상/하차 대상 물품 선택</label>
+                                                <select class="form-control mb-3" id="selectPallet">
+                                                    <option value="0">팔레트 01</option>
+                                                    <option value="1">팔레트 02</option>
+                                                    <option value="2">팔레트 03</option>
+                                                </select>
+                                                
+                                                <div class="card border-left-success shadow h-100 py-2 mb-3">
+                                                    <div class="card-body">
+                                                        <div class="row no-gutters align-items-center">
+                                                            <div class="col mr-2">
+                                                                <div class="text-xs font-weight-bold text-success text-uppercase mb-1">현재 상태</div>
+                                                                <div class="h6 mb-0 font-weight-bold text-gray-800" id="driveStatus">대기 중</div>
+                                                            </div>
+                                                            <div class="col-auto">
+                                                                <i class="fas fa-clipboard-list fa-2x text-gray-300"></i>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <button class="btn btn-success btn-block py-2 mb-2" id="autoLoadingBtn">
+                                                    <i class="fas fa-play mr-2"></i>자동 상/하차 시작
+                                                </button>
+                                                <button class="btn btn-secondary btn-block py-2" id="stopLoadingBtn">
+                                                    <i class="fas fa-home mr-2"></i>중단 및 복귀
+                                                </button>
+                                                <button class="btn btn-danger btn-block py-2" id="emergencyBtn">
+                                                    <i class="fas fa-home mr-2"></i>비상정지
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="tab-pane fade" id="nav-etc" role="tabpanel">
+                                            <div class="p-2">
+                                                <h6 class="small font-weight-bold">센서 데이터 상태</h6>
+                                                <ul class="list-group list-group-flush small">
+                                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                        LiDAR Connection <span class="badge badge-success">Online</span>
+                                                    </li>
+                                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                        Battery Voltage <span class="text-primary font-weight-bold">12.4V</span>
+                                                    </li>
+                                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                        ROS Bridge <span class="badge badge-success">Connected</span>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="nodeModal" tabindex="-1" role="dialog" aria-labelledby="nodeModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" role="document"> <div class="modal-content border-0 shadow-lg"> <div class="modal-header bg-gradient-primary text-white py-3" style="background: linear-gradient(45deg, #4e73df 0%, #224abe 100%);">
+                    <h5 class="modal-title d-flex align-items-center" id="nodeModalTitle">
+                        <i class="fas fa-map-marked-alt mr-2"></i>
+                        <span class="font-weight-bold">노드 속성 설정</span>
+                    </h5>
+                    <button class="close text-white outline-none" type="button" data-dismiss="modal" aria-label="Close" style="text-shadow: none; opacity: 0.8;">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+                <div class="modal-body p-4">
+                    <form id="nodeForm">
+                        <div class="form-group mb-4">
+                            <label class="text-xs font-weight-bold text-uppercase text-primary mb-1 d-block">
+                                Node Type
+                            </label>
+                            <div class="input-group">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text bg-light border-right-0"><i class="fas fa-tasks text-gray-600"></i></span>
+                                </div>
+                                <select class="form-control border-left-0 custom-select font-weight-normal" id="nodeType" style="height: 45px;">
+                                </select>
+                            </div>
+                        </div>
+                        <label class="text-xs font-weight-bold text-uppercase text-primary mb-1 d-block">
+                            Location Coordinates
+                        </label>
+                        <div class="row no-gutters p-3 bg-white rounded-lg border border-secondary shadow-sm">
+                            <div class="col-6 pr-2 border-right border-secondary">
+                                <label class="small text-info font-weight-bold mb-1 d-block text-center text-uppercase" style="letter-spacing: 1px;">X COORDINATE</label>
+                                <input type="text" id="nodeXCoord" 
+                                    class="form-control bg-transparent border-0 font-weight-bold text-black text-center p-0" 
+                                    readonly 
+                                    style="font-size: 1.1rem; font-family: 'Consolas', 'Monaco', monospace; overflow: hidden; text-overflow: ellipsis;" 
+                                    value="0.0000">
+                            </div>
+                            
+                            <div class="col-6 pl-2">
+                                <label class="small text-warning font-weight-bold mb-1 d-block text-center text-uppercase" style="letter-spacing: 1px;">Y COORDINATE</label>
+                                <input type="text" id="nodeYCoord" 
+                                    class="form-control bg-transparent border-0 font-weight-bold text-black text-center p-0" 
+                                    readonly 
+                                    style="font-size: 1.1rem; font-family: 'Consolas', 'Monaco', monospace; overflow: hidden; text-overflow: ellipsis;" 
+                                    value="0.0000">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer bg-light border-0 px-4 py-3 d-flex justify-content-between">
+                    <div>
+                        <button class="btn btn-outline-secondary px-4 py-2 shadow-sm font-weight-bold" type="button" id="editCoordBtn" style="border-radius: 8px; border-width: 2px;">
+                            좌표 수정
+                        </button>
+                    </div>
+
+                    <div class="d-flex align-items-center" style="gap: 8px;">
+                        <button class="btn btn-link text-danger font-weight-bold mr-2 text-decoration-none" type="button" id="deleteNodeBtn" style="display:none;">
+                            삭제
+                        </button>
+                        <button class="btn btn-link text-gray-600 font-weight-bold mr-2 text-decoration-none" type="button" data-dismiss="modal">취소</button>
+                        <button class="btn btn-primary px-4 py-2 shadow-sm font-weight-bold" type="button" id="saveNodeBtn" style="border-radius: 8px;">저장</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        $(document).ready(function() {
+            // main.js 호출 초기화 함수
+            fn_init();
+
+            toastr.options = {
+                "timeOut": "3000",
+                "extendedTimeOut": "2000",
+                "progressBar": true
+            };
+        });
+
+        /* ==========================================================
+        * 전역 변수
+        * ========================================================== */
+        var ros, viewer, gridClient;
+        var mapContainer, objectContainer;
+        var robotContainer, laserContainer, nodeContainer;
+
+        var startPos = null; // 클릭 시작 위치
+        var arrowGraphic = new createjs.Shape(); // 드래그 방향 도형 생성
+        var currentMode = 'NONE'; // 'POSE', 'GOAL', 'NODE', 'NONE', 'EDIT'
+        var waypoints = []; // 노드 좌표 저장 배열 (최대 4개)
+        var nodeList = [];
+
+        // 토픽
+        var poseTopic, scanTopic, initialPoseTopic, goalPoseTopic, pathTopic;
+
+        /* ==========================================================
+        * 지도 컨트롤
+        * ========================================================== */
+        // ROS 연결
+        ros = fn_connectRos();
+        
+        function fn_initMap() {
+            if(!ros) ros = fn_connectRos();
+
+            poseTopic = fn_getTopic("pose");
+            scanTopic = fn_getTopic("scan");
+            initialPoseTopic = fn_getTopic("initial");
+            goalPoseTopic = fn_getTopic("goal");
+            pathTopic = fn_getTopic("path");
+
+            // 맵 뷰어 생성
+            if (!viewer) {
+                viewer = new ROS2D.Viewer({
+                    divID : 'map',
+                    width : 1000,
+                    height : 1000
+                });
+            }
+
+            fn_refreshMap();
+            fn_getNodes();
+            fn_setMapMode();
+        }  
+
+        $("#mapSelect").on("change", function() {
+            fn_switchMap();
+        });
+
+        $("#deleteMapBtn").on("click", function() {
+            fn_deleteMap();
+        });
+
+        // robotContainer에 add
+        function fn_drawRobot() {
+            var robotWidth = 0.2;
+            var robotHeight = 0.3;
+
+            var robotBody = new createjs.Shape();
+            robotBody.graphics.beginFill("MediumSlateBlue").drawRect(-robotHeight/2, -robotWidth/2, robotHeight, robotWidth);
+            robotContainer.addChild(robotBody);
+
+            // var robotText = new createjs.Text("R", "bold 0.12px sans-serif", "white"); 
+            // robotText.textAlign = "center";
+            // robotText.textBaseline = "middle";
+            // robotText.rotation = 90;
+            // robotContainer.addChild(robotText);
+        }
+
+        function fn_subscriberTopic() {
+            // 위치 업데이트 (/amcl로 실시간 위치 추정)
+            poseTopic.subscribe(function(message) {
+                // 로봇의 정보가 전부 담긴 컨테이너 위치를 전부 옮김
+                robotContainer.x = message.pose.pose.position.x;
+                robotContainer.y = -message.pose.pose.position.y;
+
+                var q = message.pose.pose.orientation;
+                var yaw = Math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+                robotContainer.rotation = -yaw * (180 / Math.PI);
+            });
+
+            // 스캔 토픽 구독
+            scanTopic.subscribe(function(message) {
+                // 스캔 데이터가 들어오면 이전 모든 스캔 데이터는 지우기(실시간으로 스캔 데이터를 지도에 출력하기 위함)
+                laserContainer.removeAllChildren(); 
+                
+                // 들어온 스캔 데이터 전부 for문을 통해 점찍기
+                for (var i = 0; i < message.ranges.length; i++) {
+                    var range = message.ranges[i];
+                    if (range > message.range_min && range < message.range_max) {
+                        var angle = message.angle_min + (i * message.angle_increment);
+                        var laserPoint = new createjs.Shape();
+                        laserPoint.graphics.beginFill("#00FF00").drawCircle(0, 0, 0.03);
+                        laserPoint.x = range * Math.cos(angle);
+                        laserPoint.y = -range * Math.sin(angle);
+                        laserContainer.addChild(laserPoint);
+                    }
+                }
+            });
+        }
+
+        function fn_refreshMap() {
+            fn_stopSlamMap();
+            fn_stopSlamPoseTracking();
+            if (window.slamMapTopic) window.slamMapTopic.unsubscribe();
+
+            if (gridClient) {
+                gridClient.removeAllListeners('change');
+                if (gridClient.rosTopic) {
+                    gridClient.rosTopic.unsubscribe();
+                }
+                gridClient = null;
+            }
+            viewer.scene.removeAllChildren();
+
+            if (poseTopic) poseTopic.unsubscribe();
+            if (scanTopic) scanTopic.unsubscribe();
+
+            mapContainer = new createjs.Container();
+            viewer.scene.addChild(mapContainer);
+
+            nodeContainer = new createjs.Container(); // 맵별 노드가 그려질 곳
+            viewer.scene.addChild(nodeContainer);
+
+            robotContainer = new createjs.Container();
+            viewer.scene.addChild(robotContainer);
+
+            laserContainer = new createjs.Container();
+            robotContainer.addChild(laserContainer); // 로봇 컨테이너에 레이저 컨테이너 추가
+            
+            viewer.scene.addChild(arrowGraphic);
+            
+            fn_drawRobot();
+            
+            gridClient = new ROS2D.OccupancyGridClient({
+                ros: ros,
+                rootObject: mapContainer,
+                continuous: true,
+                topic: '/map'
+            });
+
+            gridClient.on('change', function() {
+                var grid = gridClient.currentGrid;
+                if (!grid || !grid.width) return; 
+
+                viewer.scaleToDimensions(grid.width, grid.height);
+                viewer.shift(grid.pose.position.x, grid.pose.position.y);
+
+                viewer.scene.update(); 
+            });
+
+            fn_subscriberTopic();
+        }
+
+        function resetFlags() {
+            currentMode = 'NONE';
+            $("#poseBtn, #goalBtn, #nodeBtn").removeClass("active");
+            $("#poseBtn").html('<i class="fas fa-crosshairs mr-2"></i><strong>위치 설정</strong>');
+            $("#goalBtn").html('<i class="fas fa-map-marker-alt mr-2"></i><strong>주행 설정</strong>');
+            $("#nodeBtn").html('<i class="fas fa-route mr-2"></i><strong>노드 생성</strong>');
+        }
+
+        $("#poseBtn").on("click", function() {
+            if (currentMode === 'POSE') {
+                resetFlags(); return;
+            }
+            resetFlags();
+            currentMode = 'POSE';
+            $(this).addClass("active").text("로봇 위치를 지도 위에 드래그하세요.");
+        });
+
+        $("#goalBtn").on("click", function() {
+            if (currentMode === 'GOAL') {
+                resetFlags();
+                return;
+            }
+            resetFlags();
+            currentMode = 'GOAL';
+            $(this).addClass("active").text("도착 위치를 지도 위에 드래그하세요.");
+        });
+
+        $("#nodeBtn").on("click", function() {
+            if (currentMode === 'NODE') { 
+                resetFlags(); 
+                return;
+            }
+            
+            resetFlags();
+            currentMode = 'NODE';
+            $(this).addClass("active").text("경유할 노드 위치를 지도 위에 클릭하세요.");
+        });
+
+        // 노드 수정 -> 좌표 수정 버튼 클릭
+        $("#editCoordBtn").on("click", function() {
+            $("#nodeModal").modal("hide");
+            currentMode = "EDIT"; // 수정 모드 전환
+            toastr.info('수정할 좌표를 지도 위에 클릭하세요 !', '좌표 수정');
+        });
+
+        // 노드 수정/저장
+        $("#saveNodeBtn").on("click", function() {
+            fn_saveNode();
+        });
+
+        $("#addMapBtn").on("click", function() {
+            fn_addMap();
+        });
+
+        $("#saveMapBtn").on("click", function() {
+            fn_saveMap();
+        });
+
+        // 지도 위 이벤트 리스너 함수
+        function fn_setMapMode() {
+            viewer.scene.on('stagemousedown', function(event) {
+                if(currentMode === "NONE") return; // 현재 모드가 NONE이면 리턴
+
+                startPos = viewer.scene.globalToRos(event.stageX, event.stageY);
+
+                if(currentMode === "NODE") { // 노드 모드일땐 클릭 한 번으로 노드 생성
+                    fn_openNodeModal(null);
+                    $("#nodeXCoord").val(startPos.x);
+                    $("#nodeYCoord").val(startPos.y);
+                    $("#nodeBtn").removeClass("active").html('<i class="fas fa-route mr-2"></i><strong>노드 생성</strong>');
+                    startPos = null;
+
+                    return; // 이벤트 리스너 탈출
+                };
+
+                if(currentMode === "EDIT") { // 좌표 수정 시, 이벤트
+                    // 다시 클릭한 좌표로 수정
+                    $("#nodeXCoord").val(startPos.x);
+                    $("#nodeYCoord").val(startPos.y);
+                    startPos = null;
+                    
+                    $("#nodeModal").modal("show");
+                    currentMode = "NODE";
+                    return;
+                }
+                
+                arrowGraphic.visible = true; // 선 그리기
+            });
+            
+            viewer.scene.on('stagemousemove', function(event) {
+                if (currentMode === "NONE" || currentMode === 'NODE' || !startPos) return;
+                var currentPos = viewer.scene.globalToRos(event.stageX, event.stageY);
+                
+                // 위치 설정은 파랑, 주행은 빨강 라인
+                arrowGraphic.graphics.clear().setStrokeStyle(0.05).beginStroke(currentMode === "POSE" ? "blue" : "red").moveTo(startPos.x, -startPos.y).lineTo(currentPos.x, -currentPos.y);
+            });
+
+            viewer.scene.on('stagemouseup', function(event) {
+                if (currentMode === "NONE" || currentMode === 'NODE' || !startPos) return;
+
+                // 선 각도 계산 함수
+                var endPos = viewer.scene.globalToRos(event.stageX, event.stageY);
+                var yaw = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x);
+                var qz = Math.sin(yaw / 2);
+                var qw = Math.cos(yaw / 2);
+
+                // 위치 혹은 주행 설정 구분
+                if (currentMode === "POSE") {
+                    var poseMsg = new ROSLIB.Message({
+                        header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
+                        pose: {
+                            pose: {
+                                position: { x: startPos.x, y: startPos.y, z: 0 },
+                                orientation: { x: 0, y: 0, z: qz, w: qw }
+                            },
+                            covariance: [
+                                0.5, 0, 0, 0, 0, 0,
+                                0, 0.5, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0.2
+                            ]
+                        }
+                    });
+                    initialPoseTopic.publish(poseMsg);
+
+                    $("#goalBtn, #nodeBtn").prop("disabled", true);
+                    toastr.info("AMCL 위치 수렴 중입니다. 3초 후 주행이 가능합니다.", "위치 설정");
+                    setTimeout(function() {
+                        $("#goalBtn, #nodeBtn").prop("disabled", false);
+                        toastr.success("위치 설정 완료! 주행을 시작할 수 있습니다.", "위치 설정");
+                    }, 3000);
+                    
+                    initialPoseTopic.publish(poseMsg);
+                    $("#poseBtn").removeClass("active").html('<i class="fas fa-crosshairs mr-2"></i><strong>위치 설정</strong>');
+                } 
+                else if (currentMode === "GOAL") {
+                    // if(waypoints.length > 0) { // 생성한 노드가 1개 이상 있다면
+                    // waypoints.push({id : Date.now(), x : startPos.x, y : startPos.y}); // 도착지를 마지막 웨이포인트로 지정
+                    
+                    $.ajax({
+                        url : "/drive/waypointDrive.do",
+                        type : "POST",
+                        contentType: 'application/json',
+                        dataType: 'json', 
+                        data: JSON.stringify({"x": startPos.x, "y" : startPos.y, "qz" : qz, "qw" : qw}),
+                        success: function(data) {
+                            if(data.status === "success") {
+                                toastr.success('로봇이 주행을 시작합니다 !', '경로 주행');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            toastr.error('로봇 주행 중 에러가 발생했습니다 !', '경로 주행');
+                        }
+                    });
+                    // } else { // 목적지만 주행하고자 한다면
+                    //     var goalMsg = new ROSLIB.Message({
+                    //     header: {
+                    //             frame_id: 'map',
+                    //             stamp: { sec: 0, nanosec: 0 }
+                    //         },
+                    //         pose: {
+                    //             position: { x: startPos.x, y: startPos.y, z: 0 },
+                    //             orientation: { x: 0, y: 0, z: qz, w: qw }
+                    //         }
+                    //     });
+                    //     goalPoseTopic.publish(goalMsg);
+                    // }
+                    
+                    $("#goalBtn").removeClass("active").html('<i class="fas fa-map-marker-alt mr-2"></i><strong>주행 설정</strong>');
+                } 
+
+                // 공통 초기화
+                startPos = null;
+                currentMode = "NONE";
+                arrowGraphic.graphics.clear();
+                arrowGraphic.visible = false;
+            });
+        }
+
+
+        /* ==========================================================
+        * 조이스틱 컨트롤
+        * ========================================================== */
+        var manager = null;
+        var cmdVelTopic = fn_getTopic("cmd_vel");
+        
+        // 조이스틱 생성
+        function fn_createJoystick() {
+            if (manager) {
+                manager.destroy();   // 기존 것이 있다면 제거
+            }
+
+            manager = nipplejs.create({
+                zone: document.getElementById('static-joystick'),
+                mode: 'static',
+                position: { left: '50%', top: '50%' },
+                color: 'blue'
+            });
+
+            manager.on('move', function (evt, data) {
+                // 거리(distance)와 각도(angle)를 사용하여 x, y 속도 계산
+                if (data.angle) {
+                    const linear = Math.sin(data.angle.radian) * (data.distance / 75);
+                    const angular = -Math.cos(data.angle.radian) * (data.distance / 75);
+
+                    var twist = new ROSLIB.Message({
+                        linear: {
+                            x: linear,
+                            y: 0,
+                            z: 0
+                        },
+                        angular: {
+                            x: 0,
+                            y: 0,
+                            z: angular
+                        }
+                    });
+                    cmdVelTopic.publish(twist);
+                    $("#linear_val").text(linear.toFixed(2));
+                    $("#angular_val").text(angular.toFixed(2));
+                }
+            });
+
+            manager.on('end', function () {
+                alert = {
+                        "alert_type" : "DRIVE",
+                        "alert_msg" : "수동주행 진행중"
+                    };
+                    fn_insertAlert(alert);
+                // 조이스틱을 놓으면 정지
+
+                var stopMsg = new ROSLIB.Message({
+                    linear: { x: 0, y: 0, z: 0 },
+                    angular: { x: 0, y: 0, z: 0 }
+                });
+                cmdVelTopic.publish(stopMsg);
+                $("#linear_val").text("0.00");
+                $("#angular_val").text("0.00");
+            });
+        }
+
+        // 탭을 활성화 하면 탭 기준으로 위치 설정을 할 수 있도록 함.
+        $('a[data-toggle="tab"][href="#nav-manual"]').on('shown.bs.tab', function () {
+            setTimeout(function () {
+                fn_createJoystick();
+            }, 100);
+        });
+
+        /* ==========================================================
+        * 노드 컨트롤
+        * ========================================================== */
+        function fn_createNodes(nodes) {
+            waypoints = []
+            nodeContainer.removeAllChildren();
+
+            $.each(nodes, function(idx, node){ // 개별 노드 생성
+                var invNodeContainer = new createjs.Container();
+                invNodeContainer.x = node.node_x_coord;
+                invNodeContainer.y = -node.node_y_coord;
+                invNodeContainer.nodeId = node.node_id;
+
+                nodeContainer.addChild(invNodeContainer);
+
+                var nodeSize = 0.2;
+                var nodeShape = new createjs.Shape();
+                
+                if(node.node_id.startsWith("NODE")) { // 경유노드
+                    // 경유노드만 waypoints에 push
+                    waypoints.push({
+                        id : node.node_id,
+                        x : node.node_x_coord,
+                        y : node.node_y_coord
+                    });
+                    nodeShape.graphics.beginFill("orange").drawRect(-nodeSize/2, -nodeSize/2, nodeSize, nodeSize);
+                } else if(node.node_id.startsWith("WAIT")) { // 대기노드
+                    nodeShape.graphics.beginFill("purple").drawRect(-nodeSize/2, -nodeSize/2, nodeSize, nodeSize);
+                } else if(node.node_id.startsWith("LOAD")) { // 상차노드
+                    nodeShape.graphics.beginFill("blue").drawRect(-nodeSize/2, -nodeSize/2, nodeSize, nodeSize);
+                } else if(node.node_id.startsWith("UNLD")) { // 하차노드
+                    nodeShape.graphics.beginFill("red").drawRect(-nodeSize/2, -nodeSize/2, nodeSize, nodeSize);
+                } else if(node.node_id.startsWith("CHRG")) { // 충전노드
+                    nodeShape.graphics.beginFill("lightgreen").drawRect(-nodeSize/2, -nodeSize/2, nodeSize, nodeSize);
+                } 
+                invNodeContainer.addChild(nodeShape);
+
+                // var nodeNum = new createjs.Text((idx + 1).toString(), "bold 0.12px sans-serif", "white");
+                // nodeNum.textAlign = "center";
+                // nodeNum.textBaseline = "middle";
+                // invNodeContainer.addChild(nodeNum);
+
+                // 노드 클릭 시 수정/삭제 모달 띄우는 이벤트 생성
+                nodeShape.on("click", function(e) {
+                    e.stopPropagation();
+                    fn_openNodeModal(invNodeContainer); // 해당 노드의 전체 정보를 모달로 전달
+                });
+            });
+        }
+
+        $("#deleteNodeBtn").on("click", function() {
+            fn_deleteNode();
+        });
+        
+        // 자동 상/하차 버튼 클릭 이벤트
+        $("#autoLoadingBtn").on("click", function() {
+            $("#driveStatus").text($("#selectPallet").val() + "번 상/하차 진행중");
+            alert = {
+                "alert_type" : "DRIVE",
+                "alert_msg" : $("#selectPallet").val() + "번 상/하차 진행"
+            };
+            fn_insertAlert(alert);
+
+            fn_startDrive();
+        });
+
+        // 중단 및 복귀 버튼 클릭 이벤트
+        $("#stopLoadingBtn").on("click", function() {
+            $("#driveStatus").text("중단 및 복귀");
+            alert("중단 및 복귀 버튼 클릭");
+        });
+
+        // 비상정지 버튼 클릭 이벤트
+        $("#emergencyBtn").on("click", function() {
+            $("#driveStatus").text("비상 정지 !!");
+
+            alert = {
+                "alert_type" : "EMERGENCY",
+                "alert_msg" : "비상정지"
+            };
+            fn_insertAlert(alert);
+
+            alert("비상정지 버튼 클릭");
+        });
+
+
+        /* ==========================================================
+        * 상단바 로봇 상태
+        * ========================================================== */
+        var batteryTopic = fn_getTopic("battery");
+        var odomTopic = fn_getTopic("odom");
+
+        batteryTopic.subscribe(function(message) {
+            let bat_volt = message.voltage.toFixed(1); // 전압
+            let bat_per = message.percentage.toFixed(1); // 배터리량(%)
+            let bat_bar = $("#batteryLevelBar");
+
+            if(bat_per > 100) { // 100이 넘으면 100 고정
+                bat_per = 100;
+            }
+
+            bat_bar.css("width", bat_per + "%");
+            if (bat_per > 50) {
+                bat_bar.className = "progress-bar bg-success";
+            } else if (bat_per > 20) {
+                bat_bar.className = "progress-bar bg-warning";
+            } else {
+                bat_bar.className = "progress-bar bg-danger";
+            }
+
+            $("#batteryPercentage").text(bat_per);
+            $("#batteryVoltage").text(bat_volt);
+        });
+        odomTopic.subscribe(function(message) {
+            var linear_x = message.twist.twist.linear.x.toFixed(2);
+            var angular_z = message.twist.twist.angular.z.toFixed(2);
+
+            if (Math.abs(linear_x) < 0.01) {
+                    linear_x = 0;
+            }
+
+            if (Math.abs(angular_z) < 0.01) {
+                angular_z = 0;
+            }
+
+            $("#linearSpeed").text(linear_x);
+            $("#angularSpeed").text(angular_z);
+        });
+    </script>
+</body>
+</html>
