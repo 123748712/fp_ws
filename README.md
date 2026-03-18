@@ -92,7 +92,6 @@ ArUco 마커 기반 정밀 정렬 후 지게발을 상승시켜 팔레트 상차
 Flask 서버의 진입점입니다.
 - 서버 시작 시 `start_ros_launch()`를 호출하여 ROS2 런치 파일을 자동 실행합니다.
 - 런치 실행 후 `MapManager.start_map_server()`를 호출하여 모든 Nav2 노드의 Lifecycle을 활성화합니다.
-- `FollowWayPointNode`를 별도 스레드에서 실행하여 웨이포인트 주행 요청을 처리합니다.
  
 ### map_server.launch.py
 ROS2 노드들을 실행하는 런치 파일입니다.
