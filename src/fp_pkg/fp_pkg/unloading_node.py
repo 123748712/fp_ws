@@ -51,7 +51,7 @@ ROS2 Humble | Remote PC Control
   - /get_unload 메세지로만 엔드포인트 활성화
   - BLUE  수신 → ID 0 추가
   - RED   수신 → ID 1 추가
-  - GREEN 수신 → ID 2 추가
+  - YELLOW 수신 → ID 2 추가
   - RETURN 진입 → ID 0, 1, 2 모두 제거
 
 ■ States
@@ -102,11 +102,22 @@ img_qos = QoSProfile(
 # ── 색상 HSV 범위 ─────────────────────────────────────────────────────────────
 COLOR_HSV = {
     'BLUE':  [((100, 80,  80), (130, 255, 255))],
-    'RED':   [((0,   80,  50), (10,  255, 255)),
-              ((170, 80,  50), (180, 255, 255))],
-    'GREEN': [((40,  60,  40), (80,  255, 255))],
+    'RED':   [((0,   80,  80), (10,  255, 255)),
+              ((170, 80,  80), (180, 255, 255))],
+    #'YELLOW': [((20, 150, 150), (35, 255, 255))],
+
+    # 실측: H=170~178, S=124~251, V=62~109 (어두운 버건디)
+    # H:0~10도 함께 유지 (wrap-around 안전망)
+    # V 하한을 40으로 낮춰 어두운 테이프 포함
+    #'RED':    [((0,   80,  40), (10,  255, 255)),
+    #           ((165, 80,  40), (180, 255, 255))],
+
+    # 실측: H=15~22, S=106~192, V=175~204
+    # 현재 설정(S:150, V:150)이 픽셀 수 적었던 이유: S 하한이 약간 높았음
+    # S:95, V:130으로 낮춰 안정적으로 감지
+    'YELLOW': [((14, 95, 130), (24, 255, 255))],
 }
-COLOR_TO_MARKER_ID = {'BLUE': 0, 'RED': 1, 'GREEN': 2}
+COLOR_TO_MARKER_ID = {'BLUE': 0, 'RED': 1, 'YELLOW': 2}
 
 
 # ── FSM 상태 ──────────────────────────────────────────────────────────────────
@@ -257,7 +268,7 @@ class FSMUnloadNode(Node):
 
         self.get_logger().info(
             "✅ FSMUnloadNode v4 준비 완료 — WAIT 대기 중\n"
-            "   /get_unload 에 BLUE / RED / GREEN 을 발행하면 미션 시작\n"
+            "   /get_unload 에 BLUE / RED / YELLOW 을 발행하면 미션 시작\n"
             f"   ArUco 처리 주기: 콜백 스킵×2 × ArUco 스킵×{self.ARUCO_PROCESS_EVERY}"
             f" = {2 * self.ARUCO_PROCESS_EVERY} 프레임마다 1회")
 
@@ -481,14 +492,12 @@ class FSMUnloadNode(Node):
 
     def _stop(self):
         self.pub_vel.publish(Twist())
-        self.get_logger().warn("fsm_unload_node 에서 cmd_vel 0.0 발행")
 
     def _move(self, lin: float, ang: float):
         t = Twist()
         t.linear.x  = float(lin)
         t.angular.z = float(ang)
         self.pub_vel.publish(t)
-        self.get_logger().info(f"fsm_unload_node 에서 cmd_vel {lin} 발행")
 
     def _timed_move(self, lin: float, ang: float, duration: float):
         end = time.time() + duration

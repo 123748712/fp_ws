@@ -606,3 +606,39 @@ function fn_startDrive() {
         }
     });
 }
+
+// 중단 및 복귀 기능
+function fn_abortAndReturn() {
+    $.ajax({
+        url: "/drive/abortReturn.do",
+        type: "POST",
+        contentType: 'application/json',
+        data: JSON.stringify({}),
+        success: function(data) {
+            if (data.result === "success") {
+                toastr.warning(data.message);
+            }
+        },
+        error: function() {
+            toastr.error("중단 및 복귀 요청 실패");
+        }
+    });
+}
+
+// 비상정지 기능
+function fn_emergencyStop() {
+    $.ajax({
+        url: "/drive/emergencyStop.do",
+        type: "POST",
+        contentType: 'application/json',
+        data: JSON.stringify({}),
+        success: function(data) {
+            if (data.result === "success") {
+                toastr.error(data.message);
+            }
+        },
+        error: function() {
+            toastr.error("비상 정지 요청 실패");
+        }
+    });
+}
