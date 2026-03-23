@@ -212,28 +212,25 @@ class LLMController(Node):
         PUBLISH_RATE = 0.05
 
         for step in steps:
-            # ── 회전 (직접 cmd_vel) ──
             if step['type'] == 'rotate':
                 socketio.emit('chat_response', {'data': f"{step['dir']} 방향으로 회전 중..."})
 
                 angular_speed = 0.3
-                calibration = 2.0 
+                calibration = 2.0
                 duration = (step['angle'] / angular_speed) * calibration
-
                 msg.linear.x = 0.0
                 msg.angular.z = -angular_speed if step['dir'] == 'right' else angular_speed
 
                 start = time.time()
                 while time.time() - start < duration:
                     self.cmd_pub.publish(msg)
-                    time.sleep(PUBLISH_RATE)
+                    time.sleep(PUBLISH_RATE) 
 
                 msg.linear.x = 0.0
                 msg.angular.z = 0.0
                 self.cmd_pub.publish(msg)
                 time.sleep(0.5)
 
-            # ── 직선 이동 (직접 cmd_vel) ──
             elif step['type'] == 'move':
                 direction = step['dir']
                 socketio.emit('chat_response', {
@@ -255,37 +252,29 @@ class LLMController(Node):
                 self.cmd_pub.publish(msg)
                 time.sleep(0.5)
 
-            # ── 노드 주행 (A* + Pure Pursuit) ──
             elif step['type'] == 'nav':
                 place_name = step['place']
                 socketio.emit('chat_response', {'data': f"'{place_name}' 위치 검색 중..."})
-
                 coords = self.get_coords_from_db(place_name)
                 if coords is None:
-                    socketio.emit('chat_response', {
-                        'data': f"'{place_name}' 을(를) DB에서 찾을 수 없습니다."
-                    })
+                    socketio.emit('chat_response', {'data': f"'{place_name}' 을(를) DB에서 찾을 수 없습니다."})
                     continue
-
                 socketio.emit('chat_response', {
                     'data': f"'{place_name}' 으로 이동 중... (x={coords['x']:.2f}, y={coords['y']:.2f})"
                 })
-
                 self.publish_llm_goal(coords['x'], coords['y'], coords['yaw'])
-                continue
+
             elif step['type'] == 'fork':
                 action = step['action']
-
                 socketio.emit('chat_response', {
                     'data': f"지게발 {'올리는' if action == 'UP' else '내리는'} 중..."
                 })
-
                 fork_msg = String()
                 fork_msg.data = action
                 self.fork_pub.publish(fork_msg)
                 time.sleep(2.0)
-
                 socketio.emit('chat_response', {
                     'data': f"지게발 {'올리기' if action == 'UP' else '내리기'} 완료"
                 })
+
         socketio.emit('chat_response', {'data': "명령 수행 완료 !"})

@@ -17,6 +17,9 @@ from blueprints.map_bp import map_bp
 from blueprints.drive_bp import drive_bp
 from blueprints.alert_bp import alert_bp
 from database.map_service import map_service
+from flask_socketio import SocketIO, emit
+from utils.llm_handler import LLMController
+import threading
 
 app = Flask(__name__)
 app.register_blueprint(node_bp, url_prefix='/node')
@@ -24,9 +27,42 @@ app.register_blueprint(map_bp, url_prefix='/map')
 app.register_blueprint(drive_bp, url_prefix='/drive')
 app.register_blueprint(alert_bp, url_prefix='/alert')
 CORS(app)
+
 socketio = SocketIO(app, cors_allowed_origins="*")
+
 ros_node = None
 ros_process = None
+
+llm = None
+llm_running = False
+
+@socketio.on('chat_command')
+def handle_chat_command(json_data):
+    global llm_running
+    if llm_running:
+        socketio.emit('chat_response', {'data': "이전 명령 수행 중입니다. 잠시 후 다시 시도하세요."})
+        return
+
+    user_text = json_data['data']
+    command_data = llm.get_robot_command(user_text)
+
+    if command_data and 'steps' in command_data:
+        llm_running = True
+        t = threading.Thread(
+            target=run_llm_sequence,
+            args=(command_data['steps'], ),
+            daemon=True
+        )
+        t.start()
+    else:
+        socketio.emit('chat_response', {'data': "죄송합니다. 명령을 이해하지 못했습니다."})
+
+def run_llm_sequence(steps):
+    global llm_running
+    try:
+        llm.execute_robot_sequence(steps, socketio)
+    finally:
+        llm_running = False
 
 def start_ros_launch():
     global ros_process
@@ -99,43 +135,11 @@ def main():
 def log():
     return render_template('log.html')
 
-# @app.route('/drive_waypoint', methods=['POST'])
-# def drive_waypoint():
-#     print("drive waypoint 진입")
-#     global ros_node
-#     try:
-#         data = request.get_json()
-#         waypoints = data.get('points', [])
-#         print(waypoints)
-#         if not waypoints:
-#             return jsonify({"status": "error", "message": "No waypoints provided"}), 400
-
-#         if ros_node is not None:
-#             ros_node.send_waypoints(waypoints) 
-#         else:
-#             return jsonify({"status": "error", "message": "ROS Node not initialized"}), 500
-
-#         return jsonify({"status": "success", "message": f"{len(waypoints)}개의 노드로 주행을 시작합니다."})
-#     except Exception as e:
-#         return jsonify({"status": "error", "message": str(e)}), 500
-
-# def ros_thread():
-#     global ros_node
-#     try:
-#         ros_node = FollowWayPointNode()
-#         rclpy.spin(ros_node)
-#     except Exception as e:
-#         print(f"error : {e}")
-#     finally:
-#         rclpy.shutdown()
-
 if __name__ == '__main__':
     if not rclpy.ok():
         rclpy.init()
     start_ros_launch()
 
-    # rt = Thread(target=ros_thread)
-    # rt.daemon = True
-    # rt.start()
-
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    llm = LLMController()
+    print("=== LLMController 생성 완료 ===")
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, use_reloader=False)
