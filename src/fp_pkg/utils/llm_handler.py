@@ -2,7 +2,7 @@ import requests
 import json
 import time
 from rclpy.node import Node 
-from geometry_msgs.msg import Twist, PoseStamped
+from geometry_msgs.msg import Twist, PoseStamped, PoseWithCovarianceStamped
 import sys
 from database.node_service import NodeService
 from database.map_service import map_service
@@ -21,14 +21,33 @@ class LLMController(Node):
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
             depth=10
         )
+
+        fork_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+
         
         self.url = "http://localhost:11434/api/generate"
         self.model = model
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.llm_goal_pub = self.create_publisher(PoseStamped, '/llm_goal', 10)
-        self.fork_pub = self.create_publisher(String, '/fork_cmd', 10)
+        self.fork_pub = self.create_publisher(String, '/fork_cmd', fork_qos)
         self.node_service = NodeService()
-    
+
+        # 로봇 위치 수신 토픽
+        self.current_pose = None
+        self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self.pose_callback, 10)
+
+    def pose_callback(self, msg):
+        self.current_pose = (
+            msg.pose.pose.position.x,
+            msg.pose.pose.position.y
+        )
+
+
     def get_robot_command(self, user_text):
         try:
             prompt = f"""You are a robot motion command parser.
@@ -41,28 +60,29 @@ class LLMController(Node):
                 ## Step Types
 
                 ### 1. move
-                Direct driving command. No rotation involved.
                 {{"type": "move", "dir": "forward" | "backward", "val": <meters>}}
 
                 ### 2. rotate
-                Rotate in place. Always followed by a forward move step.
                 {{"type": "rotate", "dir": "left" | "right", "angle": 1.57}}
 
                 ### 3. nav
-                Used ONLY when a specific place name or node destination is mentioned.
                 {{"type": "nav", "place": "<node_id>"}}
 
-                ## Available Nodes (place → node_id)
+                ### 4. fork
+                지게발 올리기/내리기
+                {{"type": "fork", "action": "UP" | "DOWN"}}
+
+                ## Available Nodes
                 | 키워드                        | node_id  |
                 |-------------------------------|----------|
-                | 충전, 충전소, 충전 노드         | CHRG001  |
+                | 충전, 충전소                   | CHRG001  |
                 | 상차1, 상차 1번                | LOAD001  |
                 | 상차2, 상차 2번                | LOAD002  |
                 | 상차3, 상차 3번                | LOAD003  |
-                | 경유1, 경유 1번, 1번 노드       | NODE001  |
-                | 경유2, 경유 2번, 2번 노드       | NODE002  |
-                | 경유3, 경유 3번, 3번 노드       | NODE003  |
-                | 경유4, 경유 4번, 4번 노드       | NODE004  |
+                | 경유1, 1번 노드                | NODE001  |
+                | 경유2, 2번 노드                | NODE002  |
+                | 경유3, 3번 노드                | NODE003  |
+                | 경유4, 4번 노드                | NODE004  |
                 | 하차1, 하차 1번                | UNLD001  |
                 | 하차2, 하차 2번                | UNLD002  |
                 | 하차3, 하차 3번                | UNLD003  |
@@ -79,6 +99,17 @@ class LLMController(Node):
                 - "오른쪽" → rotate right (1.57), then move forward.
                 - Place/destination name → nav ONLY. Never add move or rotate.
                 - Always map Korean keywords to the correct node_id from the table above.
+                - "지게발 올려줘", "지게발 들어줘", "포크 올려" → fork UP ONLY. Never add nav.
+                - "지게발 내려줘", "지게발 내려", "포크 내려" → fork DOWN ONLY. Never add nav.
+                - fork 명령은 단독으로 사용될 때 절대 nav를 추가하지 않습니다.
+                - nav는 오직 장소/노드 이름이 명시된 경우에만 사용합니다.
+                - "지게발 올려줘", "지게발 내려줘" 등 단독 액션 명령이 들어오면 오직 `fork` step 하나만 배열에 넣습니다.
+                - 사용자가 명시적으로 장소를 말하지 않았다면, 절대 임의로 장소(예: CHRG001, LOAD001 등)를 유추해서 `nav` step을 추가하지 않습니다.
+
+                ## Compound Command Rules
+                여러 동작을 순서대로 처리할 수 있습니다.
+                - "~한 후", "~하고 나서", "~하고", "그 다음" 등의 표현은 순서를 의미합니다.
+                - 각 동작을 steps 배열에 순서대로 추가하세요.
 
                 ## Examples
 
@@ -127,6 +158,30 @@ class LLMController(Node):
                 Input: 경유 4번으로 이동
                 Output: {{"steps": [{{"type": "nav", "place": "NODE004"}}]}}
 
+                Input: 지게발 올려줘
+                Output: {{"steps": [{{"type": "fork", "action": "UP"}}]}}
+
+                Input: 지게발 내려줘
+                Output: {{"steps": [{{"type": "fork", "action": "DOWN"}}]}}
+
+                Input: 포크 들어줘
+                Output: {{"steps": [{{"type": "fork", "action": "UP"}}]}}
+                
+                Input: 대기 노드로 이동한 후 지게발 들어줘
+                Output: {{"steps": [{{"type": "nav", "place": "WAIT001"}}, {{"type": "fork", "action": "UP"}}]}}
+
+                Input: 상차 1번으로 이동하고 지게발 올려줘
+                Output: {{"steps": [{{"type": "nav", "place": "LOAD001"}}, {{"type": "fork", "action": "UP"}}]}}
+
+                Input: 하차 노드로 가서 지게발 내려줘
+                Output: {{"steps": [{{"type": "nav", "place": "UNLD001"}}, {{"type": "fork", "action": "DOWN"}}]}}
+
+                Input: 앞으로 1m 가고 왼쪽으로 돌아줘
+                Output: {{"steps": [{{"type": "move", "dir": "forward", "val": 1.0}}, {{"type": "rotate", "dir": "left", "angle": 1.57}}]}}
+
+                Input: 충전소로 이동한 후 지게발 내려줘
+                Output: {{"steps": [{{"type": "nav", "place": "CHRG001"}}, {{"type": "fork", "action": "DOWN"}}]}}
+
                 ## Anti-Examples (never do this)
                 Input: 뒤로 1미터
                 WRONG: {{"steps": [{{"type": "rotate", "dir": "left", "angle": 1.57}}, {{"type": "move", "dir": "backward", "val": 1.0}}]}}
@@ -136,8 +191,25 @@ class LLMController(Node):
                 WRONG: {{"steps": [{{"type": "nav", "place": "충전"}}]}}
                 CORRECT: {{"steps": [{{"type": "nav", "place": "CHRG001"}}]}}
 
+                Input: 지게발 내려줘
+                WRONG: {{"steps": [{{"type": "nav", "place": "UNLD001"}}, {{"type": "fork", "action": "DOWN"}}]}}
+                CORRECT: {{"steps": [{{"type": "fork", "action": "DOWN"}}]}}
+
+                Input: 지게발 올려줘
+                WRONG: {{"steps": [{{"type": "nav", "place": "LOAD001"}}, {{"type": "fork", "action": "UP"}}]}}
+                CORRECT: {{"steps": [{{"type": "fork", "action": "UP"}}]}}
+
+                Input: 지게발 올려줘
+                WRONG: {{"steps": [{{"type": "nav", "place": "CHRG001"}}, {{"type": "fork", "action": "UP"}}]}}
+                CORRECT: {{"steps": [{{"type": "fork", "action": "UP"}}]}}
+
+                Input: 지게발 내려줘
+                WRONG: {{"steps": [{{"type": "nav", "place": "UNLD001"}}, {{"type": "fork", "action": "DOWN"}}]}}
+                CORRECT: {{"steps": [{{"type": "fork", "action": "DOWN"}}]}}
+
                 Input: {user_text}
-                Output:"""
+                Output:
+            """
 
             response = requests.post(self.url, json={
                 "model": self.model,
@@ -146,7 +218,7 @@ class LLMController(Node):
                 "format": "json",
                 "options": {
                     "temperature": 0,
-                    "num_predict": 200,
+                    "num_predict": 300,
                 }
             })
             return json.loads(response.json()['response'])
@@ -195,6 +267,23 @@ class LLMController(Node):
             print(f"DB 조회 오류: {e}")
             return None
 
+    def _wait_until_arrived(self, target_x, target_y, tolerance=0.3, timeout=60):
+        """
+        목표 위치에 도달할 때까지 대기
+        tolerance: 도착 판정 거리 (미터)
+        timeout: 최대 대기 시간 (초)
+        """
+        start = time.time()
+        while time.time() - start < timeout:
+            if self.current_pose is not None:
+                dx = self.current_pose[0] - target_x
+                dy = self.current_pose[1] - target_y
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist < tolerance:
+                    return True
+            time.sleep(0.5)
+        return False
+
     def publish_llm_goal(self, x, y, yaw=0.0):
         msg = PoseStamped()
         msg.header.frame_id = 'map'
@@ -224,7 +313,7 @@ class LLMController(Node):
                 start = time.time()
                 while time.time() - start < duration:
                     self.cmd_pub.publish(msg)
-                    time.sleep(PUBLISH_RATE) 
+                    time.sleep(PUBLISH_RATE)
 
                 msg.linear.x = 0.0
                 msg.angular.z = 0.0
@@ -255,20 +344,42 @@ class LLMController(Node):
             elif step['type'] == 'nav':
                 place_name = step['place']
                 socketio.emit('chat_response', {'data': f"'{place_name}' 위치 검색 중..."})
+
                 coords = self.get_coords_from_db(place_name)
                 if coords is None:
-                    socketio.emit('chat_response', {'data': f"'{place_name}' 을(를) DB에서 찾을 수 없습니다."})
+                    socketio.emit('chat_response', {
+                        'data': f"'{place_name}' 을(를) DB에서 찾을 수 없습니다."
+                    })
                     continue
+
                 socketio.emit('chat_response', {
                     'data': f"'{place_name}' 으로 이동 중... (x={coords['x']:.2f}, y={coords['y']:.2f})"
                 })
+
                 self.publish_llm_goal(coords['x'], coords['y'], coords['yaw'])
+                
+                # 다음 스텝 유무에 따른 대기
+                current_idx = steps.index(step)
+                has_next_step = current_idx < len(steps) - 1
+
+                if has_next_step:
+                    socketio.emit('chat_response', {'data': "목적지 도착 대기 중..."})
+                    arrived = self._wait_until_arrived(
+                        coords['x'], coords['y'],
+                        tolerance=0.3,
+                        timeout=60
+                    )
+                    if arrived:
+                        socketio.emit('chat_response', {'data': f"'{place_name}' 도착 완료! 다음 동작 수행합니다."})
+                    else:
+                        socketio.emit('chat_response', {'data': f"'{place_name}' 도착 시간 초과. 다음 동작을 수행합니다."})
 
             elif step['type'] == 'fork':
                 action = step['action']
                 socketio.emit('chat_response', {
                     'data': f"지게발 {'올리는' if action == 'UP' else '내리는'} 중..."
                 })
+
                 fork_msg = String()
                 fork_msg.data = action
                 self.fork_pub.publish(fork_msg)
