@@ -7,6 +7,9 @@ https://github.com/user-attachments/assets/dc78d335-0dca-4559-957d-9d4529d9f628
 https://github.com/user-attachments/assets/819617d0-72ca-4d3a-9966-93a4c5fb1c53
 
 
+https://github.com/user-attachments/assets/49b76ce1-932d-4eb1-9146-448e1720c6a7
+
+
 
  자율주행 지게차 웹 제어 시스템
  
